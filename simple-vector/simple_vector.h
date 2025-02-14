@@ -191,14 +191,69 @@ public:
         size_ = 0;
     }
 
+     // Добавление элемента в конец
+    void PushBack(const Type& item) {
+        if (size_ == capacity_) {
+            size_t new_capacity = capacity_ == 0 ? 1 : capacity_ * 2;
+            Type* new_data = new Type[new_capacity];
+            std::copy(data_, data_ + size_, new_data);
+            delete[] data_;
+            data_ = new_data;
+            capacity_ = new_capacity;
+        }
+        data_[size_] = item;
+        ++size_;
+    }
+
+    // Вставка элемента
+    Iterator Insert(ConstIterator pos, const Type& value) {
+        if (pos < begin() || pos > end()) {
+            throw std::out_of_range("Insert position out of range");
+        }
+
+        // Вычисляем индекс для вставки
+        size_t insert_index = pos - begin();
+
+        // Если нужно увеличить ёмкость
+        if (size_ == capacity_) {
+            size_t new_capacity = capacity_ == 0 ? 1 : capacity_ * 2;
+            Type* new_data = new Type[new_capacity];
+
+            // Копируем элементы до позиции вставки
+            std::copy(data_, data_ + insert_index, new_data);
+
+            // Вставляем новый элемент
+            new_data[insert_index] = value;
+
+            // Копируем оставшиеся элементы
+            std::copy(data_ + insert_index, data_ + size_, new_data + insert_index + 1);
+
+            // Освобождаем старую память
+            delete[] data_;
+            data_ = new_data;
+            capacity_ = new_capacity;
+        }
+        else {
+            // Сдвигаем элементы вправо
+            std::copy_backward(data_ + insert_index, data_ + size_, data_ + size_ + 1);
+
+            // Вставляем новый элемент
+            data_[insert_index] = value;
+        }
+
+        // Увеличиваем размер
+        ++size_;
+
+        // Возвращаем итератор на вставленный элемент
+        return begin() + insert_index;
+    }
+    
     // Добавление элемента в конец
     void PushBack(Type&& item) {
         if (size_ == capacity_) {
             size_t new_capacity = capacity_ == 0 ? 1 : capacity_ * 2;
             ArrayPtr<Type> new_data(new_capacity);
-            for (size_t i = 0; i < size_; ++i) {
-                new_data[i] = std::move(data_[i]);
-            }
+            std::move(begin(), end() + size_, new_data.Get());
             data_ = std::move(new_data);
             capacity_ = new_capacity;
         }
@@ -208,41 +263,44 @@ public:
 
     // Вставка элемента
     Iterator Insert(ConstIterator pos, Type&& value) {
-        if (pos < begin() || pos > end()) {
-            throw std::out_of_range("Insert position out of range");
-        }
-        size_t insert_index = pos - begin();
-        if (size_ == capacity_) {
-            size_t new_capacity = capacity_ == 0 ? 1 : capacity_ * 2;
-            ArrayPtr<Type> new_data(new_capacity);
-            for (size_t i = 0; i < insert_index; ++i) {
-                new_data[i] = std::move(data_[i]);
-            }
-            new_data[insert_index] = std::move(value);
-            for (size_t i = insert_index; i < size_; ++i) {
-                new_data[i + 1] = std::move(data_[i]);
-            }
-            data_ = std::move(new_data);
-            capacity_ = new_capacity;
-        }
-        else {
-            for (size_t i = size_; i > insert_index; --i) {
-                data_[i] = std::move(data_[i - 1]);
-            }
-            data_[insert_index] = std::move(value);
-        }
-
-        ++size_;
-        return begin() + insert_index;
+    if (pos < begin() || pos > end()) {
+        throw std::out_of_range("Insert position out of range");
     }
+    size_t insert_index = pos - begin();
+
+    if (size_ == capacity_) {
+        // Увеличиваем ёмкость
+        size_t new_capacity = capacity_ == 0 ? 1 : capacity_ * 2;
+        ArrayPtr<Type> new_data(new_capacity);
+
+        // Перемещаем элементы до позиции вставки
+        std::move(data_.Get(), data_.Get() + insert_index, new_data.Get());
+
+        // Вставляем новый элемент
+        new_data[insert_index] = std::move(value);
+
+        // Перемещаем оставшиеся элементы
+        std::move(data_.Get() + insert_index, data_.Get() + size_, new_data.Get() + insert_index + 1);
+
+        data_ = std::move(new_data);
+        capacity_ = new_capacity;
+    } else {
+        // Сдвигаем элементы вправо, начиная с позиции вставки
+        std::move_backward(data_.Get() + insert_index, data_.Get() + size_, data_.Get() + size_ + 1);
+
+        // Вставляем новый элемент
+        data_[insert_index] = std::move(value);
+    }
+
+    ++size_;
+    return begin() + insert_index;
+}
 
     // Удаление последнего элемента
     void PopBack() noexcept {
         assert(size_ > 0 && "PopBack called on an empty container");
-        if (size_ > 0) {
-            --size_;
-            data_[size_] = Type(); // Очищаем последний элемент
-        }
+        --size_;
+        data_[size_] = Type(); // Очищаем последний элемент
     }
 
     // Удаление элемента
