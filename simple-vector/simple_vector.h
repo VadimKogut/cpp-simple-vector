@@ -38,10 +38,9 @@ public:
     // Конструктор с заданным размером
     explicit SimpleVector(size_t size)
         : size_(size), capacity_(size), data_(new Type[size]) {
-        for (size_t i = 0; i < size_; ++i) {
-            data_[i] = Type();
-        }
+        std::fill_n(data_, size_, Type());
     }
+
     // Конструктор с резервированием ёмкости
     explicit SimpleVector(ReserveProxyObj obj)
         : capacity_(obj.GetCapacity()), data_(new Type[obj.GetCapacity()]) {}
@@ -49,18 +48,13 @@ public:
     // Конструктор с заданным размером и значением
     SimpleVector(size_t size, const Type& value)
         : size_(size), capacity_(size), data_(new Type[size]) {
-        for (size_t i = 0; i < size; ++i) {
-            data_[i] = value;
-        }
+        std::fill_n(data_, size_, value);
     }
 
     // Конструктор с initializer_list
     SimpleVector(std::initializer_list<Type> init)
         : size_(init.size()), capacity_(init.size()), data_(new Type[size_]) {
-        size_t i = 0;
-        for (const auto& elem : init) {
-            data_[i++] = elem;
-        }
+        std::copy(init.begin(), init.end(), data_);
     }
 
     // Деструктор
@@ -76,7 +70,7 @@ public:
 
     // Конструктор перемещения
     SimpleVector(SimpleVector&& other) noexcept
-        : 
+        :
         size_(std::exchange(other.size_, 0)),
         capacity_(std::exchange(other.capacity_, 0)), data_(std::exchange(other.data_, nullptr)) {}
 
@@ -114,10 +108,12 @@ public:
 
     // Оператор индексирования
     Type& operator[](size_t index) noexcept {
+        assert(index < size_ && "Index out of range");
         return data_[index];
     }
 
     const Type& operator[](size_t index) const noexcept {
+        assert(index < size_ && "Index out of range");
         return data_[index];
     }
 
@@ -211,57 +207,60 @@ public:
     }
 
     // Добавление элемента в конец
-    void PushBack(const Type& item) {
+    void PushBack(Type&& item) {
         if (size_ == capacity_) {
             size_t new_capacity = capacity_ == 0 ? 1 : capacity_ * 2;
             Type* new_data = new Type[new_capacity];
-            std::move(data_, data_ + size_, new_data);
+            for (size_t i = 0; i < size_; ++i) {
+                new_data[i] = std::move(data_[i]);
+            }
             delete[] data_;
             data_ = new_data;
             capacity_ = new_capacity;
         }
-        data_[size_] = std::move(const_cast<Type&>(item));
+        data_[size_] = std::move(item);
         ++size_;
     }
 
     // Вставка элемента
-    Iterator Insert(ConstIterator pos, const Type& value) {
+    Iterator Insert(ConstIterator pos, Type&& value) {
         if (pos < begin() || pos > end()) {
             throw std::out_of_range("Insert position out of range");
         }
-
-        // Вычисляем индекс для вставки
         size_t insert_index = pos - begin();
-
-        // Если нужно увеличить ёмкость
         if (size_ == capacity_) {
             size_t new_capacity = capacity_ == 0 ? 1 : capacity_ * 2;
             Type* new_data = new Type[new_capacity];
-
-            std::move(data_, data_ + insert_index, new_data);
-            new_data[insert_index] = std::move(const_cast<Type&&>(value));
-            std::move(data_ + insert_index, data_ + size_, new_data + insert_index + 1);
-
-            delete[] data_;
-            data_ = new_data;
+            for (size_t i = 0; i < insert_index; ++i) {
+                new_data[i] = std::move(data_[i]);
+            }
+            new_data[insert_index] = std::move(value);
+            for (size_t i = insert_index; i < size_; ++i) {
+                new_data[i + 1] = std::move(data_[i]);
+            }
+            data_ = std::move(new_data);
             capacity_ = new_capacity;
         }
-        else {
-            std::move_backward(data_ + insert_index, data_ + size_, data_ + size_ + 1);
-            data_[insert_index] = std::move(const_cast<Type&&>(value));
+        else { 
+            for (size_t i = size_; i > insert_index; --i) {
+                data_[i] = std::move(data_[i - 1]);
+            }
+            data_[insert_index] = std::move(value);
         }
+
         ++size_;
         return begin() + insert_index;
     }
 
     // Удаление последнего элемента
     void PopBack() noexcept {
-        if (size_ == 0) {
-            return; // Ничего не делаем
+        assert(size_ > 0 && "PopBack called on an empty container");
+        if (size_ > 0) {
+             --size_;
+             data_[size_] = Type(); // Очищаем последний элемент
         }
-        --size_;
-        data_[size_] = Type(); // Очищаем последний элемент
     }
+
 
     // Удаление элемента
     Iterator Erase(ConstIterator pos) {
@@ -305,32 +304,19 @@ private:
 };
 
 // Операторы сравнения
+
 template <typename Type>
 inline bool operator<(const SimpleVector<Type>& lhs, const SimpleVector<Type>& rhs) {
-    size_t min_size = std::min(lhs.GetSize(), rhs.GetSize());
-    for (size_t i = 0; i < min_size; ++i) {
-        if (lhs[i] < rhs[i]) {
-            return true;
-        }
-        if (rhs[i] < lhs[i]) {
-            return false;
-        }
-    }
-    return lhs.GetSize() < rhs.GetSize();
+    return std::lexicographical_compare(
+        lhs.begin(), lhs.end(), // Начало и конец первого диапазона
+        rhs.begin(), rhs.end()  // Начало и конец второго диапазона
+    );
 }
 
 template <typename Type>
 inline bool operator==(const SimpleVector<Type>& lhs, const SimpleVector<Type>& rhs) {
-    if (lhs.GetSize() != rhs.GetSize()) {
-        return false;
-    }
-
-    for (size_t i = 0; i < lhs.GetSize(); ++i) {
-        if (lhs[i] != rhs[i]) {
-            return false;
-        }
-    }
-    return true;
+    return lhs.GetSize() == rhs.GetSize() &&
+        std::equal(lhs.begin(), lhs.end(), rhs.begin());
 }
 
 template <typename Type>
