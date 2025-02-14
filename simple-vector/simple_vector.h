@@ -4,6 +4,7 @@
 #include <stdexcept>
 #include <algorithm>
 #include <utility> // Для std::move
+#include "array_ptr.h" // Подключаем ArrayPtr
 
 // Класс-объект для резервирования
 class ReserveProxyObj {
@@ -23,8 +24,6 @@ private:
 ReserveProxyObj Reserve(size_t capacity) {
     return ReserveProxyObj(capacity);
 }
-// Вспомогательный класс для передачи параметра резервирования
-
 
 template <typename Type>
 class SimpleVector {
@@ -37,42 +36,40 @@ public:
 
     // Конструктор с заданным размером
     explicit SimpleVector(size_t size)
-        : size_(size), capacity_(size), data_(new Type[size]) {
-        std::fill_n(data_, size_, Type());
+        : size_(size), capacity_(size), data_(size == 0 ? nullptr : new Type[size]) {
+        std::fill_n(data_.Get(), size_, Type());
     }
 
     // Конструктор с резервированием ёмкости
     explicit SimpleVector(ReserveProxyObj obj)
-        : capacity_(obj.GetCapacity()), data_(new Type[obj.GetCapacity()]) {}
+        : capacity_(obj.GetCapacity()), data_(obj.GetCapacity() == 0 ? nullptr : new Type[obj.GetCapacity()]) {}
 
     // Конструктор с заданным размером и значением
     SimpleVector(size_t size, const Type& value)
-        : size_(size), capacity_(size), data_(new Type[size]) {
-        std::fill_n(data_, size_, value);
+        : size_(size), capacity_(size), data_(size == 0 ? nullptr : new Type[size]) {
+        std::fill_n(data_.Get(), size_, value);
     }
 
     // Конструктор с initializer_list
     SimpleVector(std::initializer_list<Type> init)
-        : size_(init.size()), capacity_(init.size()), data_(new Type[size_]) {
-        std::copy(init.begin(), init.end(), data_);
+        : size_(init.size()), capacity_(init.size()), data_(init.size() == 0 ? nullptr : new Type[init.size()]) {
+        std::copy(init.begin(), init.end(), data_.Get());
     }
 
-    // Деструктор
-    ~SimpleVector() {
-        delete[] data_;
-    }
+    // Деструктор (не нужен, так как ArrayPtr сам освобождает память)
+    ~SimpleVector() = default;
 
     // Конструктор копирования
     SimpleVector(const SimpleVector& other)
-        : size_(other.size_), capacity_(other.size_), data_(new Type[other.size_]) {
-        std::copy(other.data_, other.data_ + other.size_, data_);
+        : size_(other.size_), capacity_(other.size_), data_(other.size_ == 0 ? nullptr : new Type[other.size_]) {
+        std::copy(other.data_.Get(), other.data_.Get() + other.size_, data_.Get());
     }
 
     // Конструктор перемещения
     SimpleVector(SimpleVector&& other) noexcept
-        :
-        size_(std::exchange(other.size_, 0)),
-        capacity_(std::exchange(other.capacity_, 0)), data_(std::exchange(other.data_, nullptr)) {}
+        : size_(std::exchange(other.size_, 0)),
+          capacity_(std::exchange(other.capacity_, 0)),
+          data_(std::move(other.data_)) {}
 
     // Оператор присваивания
     SimpleVector& operator=(const SimpleVector& other) {
@@ -80,28 +77,17 @@ public:
             return *this; // Защита от самоприсваивания
         }
 
-        // Выделяем новую память
-        Type* new_data = new Type[other.size_];
-        std::copy(other.data_, other.data_ + other.size_, new_data);
-
-        // Освобождаем старую память
-        delete[] data_;
-
-        // Обновляем данные
-        data_ = new_data;
-        size_ = other.size_;
-        capacity_ = other.size_;
-
+        SimpleVector tmp(other); // Используем конструктор копирования
+        swap(tmp); // Обмениваем содержимое
         return *this;
     }
 
-    //оператор перемещающего присваивания
+    // Оператор перемещающего присваивания
     SimpleVector& operator=(SimpleVector&& other) noexcept {
         if (this != &other) {
-            delete[] data_;
-            data_ = std::exchange(other.data_, nullptr);
             size_ = std::exchange(other.size_, 0);
             capacity_ = std::exchange(other.capacity_, 0);
+            data_ = std::move(other.data_);
         }
         return *this;
     }
@@ -140,16 +126,15 @@ public:
 
         if (new_size > capacity_) {
             size_t new_capacity = new_size;
-            Type* new_data = new Type[new_capacity];
+            ArrayPtr<Type> new_data(new_capacity);
 
-            std::move(data_, data_ + size_, new_data);
+            std::move(data_.Get(), data_.Get() + size_, new_data.Get());
 
             for (size_t i = size_; i < new_size; ++i) {
                 new_data[i] = Type();
             }
 
-            delete[] data_;
-            data_ = new_data;
+            data_ = std::move(new_data);
             capacity_ = new_capacity;
         }
         else {
@@ -163,27 +148,27 @@ public:
 
     // Итераторы
     Iterator begin() noexcept {
-        return data_;
+        return data_.Get();
     }
 
     Iterator end() noexcept {
-        return data_ + size_;
+        return data_.Get() + size_;
     }
 
     ConstIterator begin() const noexcept {
-        return data_;
+        return data_.Get();
     }
 
     ConstIterator end() const noexcept {
-        return data_ + size_;
+        return data_.Get() + size_;
     }
 
     ConstIterator cbegin() const noexcept {
-        return data_;
+        return data_.Get();
     }
 
     ConstIterator cend() const noexcept {
-        return data_ + size_;
+        return data_.Get() + size_;
     }
 
     // Получение размера
@@ -210,12 +195,11 @@ public:
     void PushBack(Type&& item) {
         if (size_ == capacity_) {
             size_t new_capacity = capacity_ == 0 ? 1 : capacity_ * 2;
-            Type* new_data = new Type[new_capacity];
+            ArrayPtr<Type> new_data(new_capacity);
             for (size_t i = 0; i < size_; ++i) {
                 new_data[i] = std::move(data_[i]);
             }
-            delete[] data_;
-            data_ = new_data;
+            data_ = std::move(new_data);
             capacity_ = new_capacity;
         }
         data_[size_] = std::move(item);
@@ -230,7 +214,7 @@ public:
         size_t insert_index = pos - begin();
         if (size_ == capacity_) {
             size_t new_capacity = capacity_ == 0 ? 1 : capacity_ * 2;
-            Type* new_data = new Type[new_capacity];
+            ArrayPtr<Type> new_data(new_capacity);
             for (size_t i = 0; i < insert_index; ++i) {
                 new_data[i] = std::move(data_[i]);
             }
@@ -241,7 +225,7 @@ public:
             data_ = std::move(new_data);
             capacity_ = new_capacity;
         }
-        else { 
+        else {
             for (size_t i = size_; i > insert_index; --i) {
                 data_[i] = std::move(data_[i - 1]);
             }
@@ -256,11 +240,10 @@ public:
     void PopBack() noexcept {
         assert(size_ > 0 && "PopBack called on an empty container");
         if (size_ > 0) {
-             --size_;
-             data_[size_] = Type(); // Очищаем последний элемент
+            --size_;
+            data_[size_] = Type(); // Очищаем последний элемент
         }
     }
-
 
     // Удаление элемента
     Iterator Erase(ConstIterator pos) {
@@ -289,10 +272,9 @@ public:
     // Метод Reserve
     void Reserve(size_t new_capacity) {
         if (new_capacity > capacity_) {
-            Type* new_data = new Type[new_capacity];
-            std::move(data_, data_ + size_, new_data);
-            delete[] data_;
-            data_ = new_data;
+            ArrayPtr<Type> new_data(new_capacity);
+            std::move(data_.Get(), data_.Get() + size_, new_data.Get());
+            data_ = std::move(new_data);
             capacity_ = new_capacity;
         }
     }
@@ -300,7 +282,7 @@ public:
 private:
     size_t size_ = 0;
     size_t capacity_ = 0;
-    Type* data_ = nullptr;
+    ArrayPtr<Type> data_;
 };
 
 // Операторы сравнения
